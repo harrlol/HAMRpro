@@ -5,7 +5,7 @@ set -u
 
 if [ "$#" -lt 5 ]; then
 echo "Missing arguments!"
-echo "USAGE: fastq2hamr.sh <input bam file> <reference genome.fa> <filter.pl> <out directory> <sequence dictionary.dict>"
+echo "USAGE: just_the_pre_processing.sh <input bam file> <reference genome.fa> <filter.pl> <out directory> <sequence dictionary.dict>"
 exit 1
 fi
 
@@ -28,29 +28,17 @@ echo ""
 
 wait
 
-#filter the accepted hits by uniqueness
-echo "[$bam_stem] filter unique..."
-samtools view \
-    -h $out/sorted.bam \
-    | perl $sort 1 \
-    | samtools view -bS - \
-    | samtools sort \
-    -o $out/unique.bam
-echo "[$bam_stem] finished filtering"
-echo ""
-
-wait
-
 #adds read groups using picard, note the RG arguments are disregarded here
 echo "[$bam_stem] adding/replacing read groups..."
 gatk AddOrReplaceReadGroups \
-    I=$out/unique.bam \
-    O=$out/unique_RG.bam \
+    I=$out/sorted.bam \
+    O=$out/RG.bam \
     RGID=1 \
     RGLB=xxx \
     RGPL=illumina_100se \
     RGPU=HWI-ST1395:97:d29b4acxx:8 \
-    RGSM=sample
+    RGSM=sample \
+    SORT_ORDER=unsorted
 echo "[$bam_stem] finished adding/replacing read groups"
 echo ""
 
@@ -59,8 +47,8 @@ wait
 #reorder the reads using picard
 echo "[$bam_stem] reordering..."
 gatk --java-options "-Xmx2g -Djava.io.tmpdir=$out/tmp" ReorderSam \
-    I=$out/unique_RG.bam \
-    O=$out/unique_RG_ordered.bam \
+    I=$out/RG.bam \
+    O=$out/RG_ordered.bam \
     R=$gno \
     CREATE_INDEX=TRUE \
     SEQUENCE_DICTIONARY=$dict \
@@ -75,8 +63,8 @@ wait
 echo "[$bam_stem] getting split and cigar reads..."
 gatk --java-options "-Xmx2g -Djava.io.tmpdir=$out/tmp" SplitNCigarReads \
     -R $gno \
-    -I $out/unique_RG_ordered.bam \
-    -O $out/unique_RG_ordered_splitN.bam \
+    -I $out/RG_ordered.bam \
+    -O $out/RG_ordered_splitN.bam \
     # -U ALLOW_N_CIGAR_READS
 echo "[$bam_stem] finished splitting N cigarring"
 echo ""
@@ -86,8 +74,8 @@ wait
 #final resorting using picard
 echo "[$bam_stem] resorting..."
 gatk --java-options "-Xmx2g -Djava.io.tmpdir=$out/tmp" SortSam \
-    I=$out/unique_RG_ordered_splitN.bam \
-    O=$out/unique_RG_ordered_splitN.resort.bam \
+    I=$out/RG_ordered_splitN.bam \
+    O=$out/RG_ordered_splitN.resort.bam \
     SORT_ORDER=coordinate
 echo "[$bam_stem] finished resorting"
 echo ""

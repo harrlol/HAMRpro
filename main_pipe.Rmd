@@ -1,0 +1,167 @@
+---
+title: "CIS 4910 Project"
+output: html_notebook
+---
+
+load packages
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(data.table)
+
+```
+
+```{r}
+PRJNA478205 <- fread("/Users/harrlol/Desktop/Gregory_Lab/temp_storage_1127/lab_results/new/PRJNA478205/mod_long.csv")
+PRJNA596803 <- fread("/Users/harrlol/Desktop/Gregory_Lab/temp_storage_1127/lab_results/new/PRJNA596803/mod_long.csv")
+
+
+a <- unique((PRJNA478205%>%
+  filter(lap_type == "ncRNA" & mod == "m1G" & genotype == "salt"))$gene)
+
+b <- unique((PRJNA478205%>%
+  filter(lap_type == "ncRNA" & mod == "m1G" & genotype == "WT"))$gene)
+a # antisense lncRNA*4 (nuclear factor for ABA response, enzyme that catalyze oxidation of aromatic allylic alcohols, auxin regulation), DNA repair DEAD helicase, 
+b # antisense lncRNA (TF for seed coat)
+intersect(a,b) # antisense lncRNA* 3 (U2 subunit, auxin effect of IAM, phospholipase-like protein), rrna*2
+
+
+
+PRJNA596803%>%filter(genotype == "Col0_ABA" & lap_type == "threeUTR" & mod == "m3C")
+PRJNA596803%>%filter(genotype == "Col0_NT" & lap_type == "threeUTR" & mod == "m3C")
+PRJNA596803%>%filter(genotype == "dxo1_ABA" & lap_type == "threeUTR" & mod == "m3C")
+PRJNA596803%>%filter(genotype == "dxo1_NT" & lap_type == "threeUTR" & mod == "m3C") 
+
+a <- (PRJNA596803%>%filter(genotype == "Col0_ABA" & lap_type == "CDS" & mod == "D"))$gene
+b <- (PRJNA596803%>%filter(genotype == "Col0_NT" & lap_type == "CDS" & mod == "D"))$gene
+c <- (PRJNA596803%>%filter(genotype == "dxo1_ABA" & lap_type == "CDS" & mod == "D"))$gene
+d <- (PRJNA596803%>%filter(genotype == "dxo1_NT" & lap_type == "CDS" & mod == "D"))$gene #response to abiotic stress GO
+
+intersect(intersect(intersect(a,b),c),d)
+
+
+```
+
+Create a markov transition matrix from a sequence of DNA
+
+```{r}
+clean_rep <- function(df) {
+  out <- df%>%
+    select(chr, bp, strand, refnuc, pred.mod)
+  return(out)
+}
+rep1 <- clean_rep(fread("/Users/harrlol/Desktop/SRR646457.mods.txt"))
+rep2 <- clean_rep(fread("/Users/harrlol/Desktop/SRR646458.mods.txt"))
+rep3 <- clean_rep(fread("/Users/harrlol/Desktop/SRR646459.mods.txt"))
+rep4 <- clean_rep(fread("/Users/harrlol/Desktop/SRR646460.mods.txt"))
+
+cons <- union(union(union(rep1,rep2),rep3),rep4)
+
+cons <- cons%>%
+  mutate(start=bp, end=bp+1)
+
+coord_list <- cons%>%
+  select(chr, start, end)
+
+# these contain illegal coordinates according to ucsc genome browser
+coord_list <- coord_list[-c(21,241,242,243,244,245,246,265,368,469,548), ]
+
+# write.table(coord_list, "coord_list.bed", col.names = F, row.names = F, quote = FALSE)
+
+# sent to ucsc to identify trna genes
+trna_align <- fread("/Users/harrlol/Desktop/cis project/trna_align.csv")%>%
+  mutate(pred_mod_loc = 0, pred_mod_loc_rel = 0, pred_mod = "NA")
+
+# for every matched trna entries, pull the mod location
+for (i in 1:nrow(coord_list)) {
+  for (j in 1:nrow(trna_align)) {
+    if (cons[i, chr] == trna_align[j, chrom] &&
+        cons[i, start] <= trna_align[j, chromEnd] &&
+        cons[i, start] >= trna_align[j, chromStart]) {
+      trna_align$pred_mod_loc[j] <- cons[i, start]
+      trna_align$pred_mod_loc_rel[j] <- cons[i, start] - trna_align[j, chromStart]
+      trna_align$pred_mod_loc_rel[j] <- cons[i, start] - trna_align[j, chromStart]
+      
+    }
+  }
+}
+
+
+trna_mod_loc <- trna_align%>%
+  select(name,aa, ac, pred_mod_loc_rel, pred_mod)
+
+
+# next step 1) match actual mod and fill trna_mod 2) pull mismatch distrbution and finish assembly (gon require loops)
+rep1_raw <- fread("/Users/harrlol/Desktop/SRR646457.mods.txt")
+rep2_raw <- fread("/Users/harrlol/Desktop/SRR646458.mods.txt")
+rep3_raw <- fread("/Users/harrlol/Desktop/SRR646459.mods.txt")
+rep4_raw <- fread("/Users/harrlol/Desktop/SRR646460.mods.txt")
+
+dat_in <- trna_align%>%select(chr=chrom, strand, bp=pred_mod_loc)
+
+merged_df1 <- merge(dat_in, rep1_raw, by = c("chr", "strand", "bp"), all.x = TRUE)
+temp1 <- merged_df1%>%select("A", "C", "G", "T", "refnuc", "nonref", "ref", "pred.mod")
+remerge1 <- dat_in[is.na(temp1$ref), ]
+out <- temp1[!is.na(temp1$ref), ]
+
+merged_df2 <- merge(remerge1, rep2_raw, by = c("chr", "strand", "bp"), all.x = TRUE)
+temp2 <- merged_df2%>%select("A", "C", "G", "T", "refnuc", "nonref", "ref", "pred.mod")
+remerge2 <- remerge1[is.na(temp2$ref), ]
+out <- rbind(out, temp2[!is.na(temp2$ref), ])
+
+merged_df3 <- merge(remerge2, rep3_raw, by = c("chr", "strand", "bp"), all.x = TRUE)
+temp3 <- merged_df3%>%select("A", "C", "G", "T", "refnuc", "nonref", "ref", "pred.mod")
+remerge3 <- remerge2[is.na(temp3$ref), ]
+out <- rbind(out, temp3[!is.na(temp3$ref), ])
+
+merged_df4 <- merge(remerge3, rep4_raw, by = c("chr", "strand", "bp"), all.x = TRUE)
+temp4 <- merged_df4%>%select("A", "C", "G", "T", "refnuc", "nonref", "ref", "pred.mod")
+remerge4 <- remerge3[is.na(temp4$ref), ]
+out <- rbind(out, temp4[!is.na(temp4$ref), ])
+
+write.csv(out, "/Users/harrlol/Desktop/cleaned_mismatch2mod.csv")
+
+
+```
+
+```{r}
+
+
+
+
+
+## below is for physics
+
+o1 <- cons%>%
+  mutate(start = start - 500, end = end + 500)%>%
+  select(chr, start, end, mod=pred.mod)
+
+o2.1 <- fread("/Users/harrlol/Desktop/Gregory_Lab/temp_storage_1127/lab_results/new/PRJNA478205/mod_long.csv")%>%
+  mutate(start = pos - 500, end = pos + 500)%>%
+  select(seq, start, end, mod)%>%
+  unique()
+
+o2.2 <- fread("/Users/harrlol/Desktop/Gregory_Lab/temp_storage_1127/lab_results/new/PRJNA478205/mod_long.csv")%>%
+  mutate(start = pos - 500, end = pos + 500)%>%
+  select(seq, start, end)%>%
+  unique()
+
+# drop any that extends into the negative
+
+# processed_cons <- c[o1$start >= 0, ]
+# write.table(o1, "known_mod_phys_original.bed",  col.names = F, row.names = F, quote = FALSE, sep = '\t')
+# write.table(o2.1, "pred_mod_phys_orginal.bed",  col.names = F, row.names = F, quote = FALSE, sep = '\t')
+
+
+idx1 <- which(o1$start<0)
+idx2 <- which(o2.1$start<0)
+o1 <- o1[o1$start >= 0, ]
+o2.1 <- o2.1[o2.1$start >= 0, ]
+o2.2 <- o2.2[o2.2$start >= 0, ]
+
+write.table(o1, "known_mod_phys.bed",  col.names = F, row.names = F, quote = FALSE, sep = '\t')
+write.table(o2.1, "pred_mod_phys_wmod.bed",  col.names = F, row.names = F, quote = FALSE, sep = '\t')
+write.table(o2.2, "pred_mod_phys.bed", col.names = F, row.names = F, quote = FALSE, sep = '\t')
+```
