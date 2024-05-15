@@ -99,7 +99,9 @@ rep2_raw <- fread("/Users/harrlol/Desktop/SRR646458.mods.txt")
 rep3_raw <- fread("/Users/harrlol/Desktop/SRR646459.mods.txt")
 rep4_raw <- fread("/Users/harrlol/Desktop/SRR646460.mods.txt")
 
-dat_in <- trna_align%>%select(chr=chrom, strand, bp=pred_mod_loc)
+# dat_in <- trna_align%>%select(chr=chrom, strand, bp=pred_mod_loc)
+# larger dataset
+dat_in <- cons%>%select(chr, strand, bp)
 
 merged_df1 <- merge(dat_in, rep1_raw, by = c("chr", "strand", "bp"), all.x = TRUE)
 temp1 <- merged_df1%>%select("A", "C", "G", "T", "refnuc", "nonref", "ref", "pred.mod")
@@ -120,6 +122,11 @@ merged_df4 <- merge(remerge3, rep4_raw, by = c("chr", "strand", "bp"), all.x = T
 temp4 <- merged_df4%>%select("A", "C", "G", "T", "refnuc", "nonref", "ref", "pred.mod")
 remerge4 <- remerge3[is.na(temp4$ref), ]
 out <- rbind(out, temp4[!is.na(temp4$ref), ])
+
+out
+
+unique(out$pred.mod)
+
 
 write.csv(out, "/Users/harrlol/Desktop/cleaned_mismatch2mod.csv")
 
